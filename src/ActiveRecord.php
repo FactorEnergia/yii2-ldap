@@ -1,6 +1,6 @@
 <?php
 /**
- * @link      https://github.com/chrmorandi/yii2-ldap for the canonical source repository
+ * @link      https://github.com/chrmorandi/yii2-ldap for the source repository
  * @package   yii2-ldap
  * @author    Christopher Mota <chrmorandi@gmail.com>
  * @license   MIT License - view the LICENSE file that was distributed with this source code.
@@ -10,8 +10,8 @@ namespace factorenergia\ldap;
 
 use chrmorandi\ldap\ActiveQuery;
 use chrmorandi\ldap\Connection;
-use Exception;
 use Yii;
+use yii\base\InvalidConfigException;
 use yii\db\BaseActiveRecord;
 
 /**
@@ -44,17 +44,17 @@ use yii\db\BaseActiveRecord;
  * @since 1.0.0
  */
 class ActiveRecord extends BaseActiveRecord
-{    
+{
     /**
      * Returns the LDAP connection used by this AR class.
      *
-     * @return Connection the LDAP connection used by this AR class.
+     * @return Connection|null the LDAP connection used by this AR class.
      */
     public static function getDb()
     {
         return Yii::$app->get('ldap');
     }
-    
+
     /**
      * @inheritdoc
      * @return ActiveQuery the newly created [[ActiveQuery]] instance.
@@ -68,13 +68,15 @@ class ActiveRecord extends BaseActiveRecord
      * Returns the primary key name(s) for this AR class.
      * This method should be overridden by child classes to define the primary key.
      *
+     * Note that an array should be returned.
+     *
      * @return string[] the primary keys of this record.
      */
     public static function primaryKey()
     {
         return ['dn'];
     }
-    
+
     /**
      * Returns the list of attribute names.
      * You must override this method to define avaliable attributes.
@@ -84,9 +86,9 @@ class ActiveRecord extends BaseActiveRecord
     {
         throw new InvalidConfigException('The attributes() method of ldap ActiveRecord has to be implemented by child classes.');
     }
-    
+
     /**
-     * Inserts a row into the associated database table using the attribute values of this record.
+     * Inserts a record in the ldap using the attribute values.
      *
      * This method performs the following steps in order:
      *
@@ -96,7 +98,7 @@ class ActiveRecord extends BaseActiveRecord
      *    failed, the rest of the steps will be skipped;
      * 3. call [[beforeSave()]]. If [[beforeSave()]] returns `false`,
      *    the rest of the steps will be skipped;
-     * 4. insert the record into database. If this fails, it will skip the rest of the steps;
+     * 4. insert the record into LDAP. If this fails, it will skip the rest of the steps;
      * 5. call [[afterSave()]];
      *
      * In the above step 1, 2, 3 and 5, events [[EVENT_BEFORE_VALIDATE]],
@@ -117,13 +119,13 @@ class ActiveRecord extends BaseActiveRecord
      * $customer->insert();
      * ```
      *
-     * @param  boolean $runValidation whether to perform validation (calling [[validate()]])
+     * @param bool $runValidation whether to perform validation (calling [[validate()]])
      * before saving the record. Defaults to `true`. If the validation fails, the record
-     * will not be saved to the database and this method will return `false`.
-     * @param  string[]|null $attributes    list of attributes that need to be saved. Defaults to null, meaning all attributes that are loaded from DB will be saved. meaning all attributes that are loaded from DB will be saved.
+     * will not be saved to the LDAP and this method will return `false`.
+     * @param string[]|null $attributes list of attributes that need to be saved.
+     * Defaults to null, meaning all attributes that are loaded from LDAP will be saved.
      * meaning all attributes that are loaded from DB will be saved.
-     * @return boolean whether the attributes are valid and the record is inserted successfully.
-     * @throws Exception in case insert failed.
+     * @return bool whether the attributes are valid and the record is inserted successfully.
      */
     public function insert($runValidation = true, $attributes = null)
     {
@@ -134,25 +136,25 @@ class ActiveRecord extends BaseActiveRecord
 
         return $this->insertInternal($attributes);
     }
-    
+
     /**
      * Inserts an ActiveRecord into LDAP without.
      *
      * @param  string[]|null $attributes list of attributes that need to be saved. Defaults to null,
      * meaning all attributes that are loaded will be saved.
-     * @return boolean whether the record is inserted successfully.
+     * @return bool whether the record is inserted successfully.
      */
     protected function insertInternal($attributes = null)
     {
         if (!$this->beforeSave(true)) {
             return false;
         }
-        
+
         $primaryKey = static::primaryKey();
-        $values = $this->getDirtyAttributes($attributes);
-        $dn = $values[$primaryKey[0]];
+        $values     = $this->getDirtyAttributes($attributes);
+        $dn         = $values[$primaryKey[0]];
         unset($values[$primaryKey[0]]);
-        
+
         static::getDb()->open();
 
         if (static::getDb()->add($dn, $values) === false) {
@@ -164,17 +166,16 @@ class ActiveRecord extends BaseActiveRecord
         $changedAttributes = array_fill_keys(array_keys($values), null);
         $this->setOldAttributes($values);
         $this->afterSave(true, $changedAttributes);
-        
+
         static::getDb()->close();
 
         return true;
     }
-    
+
     /**
      * @see update()
-     * @param array $attributes attributes to update
-     * @return integer number of rows updated
-     * @throws StaleObjectException
+     * @param string[]|null $attributes the names of the attributes to update.
+     * @return int|false number of rows updated
      */
     protected function updateInternal($attributes = null)
     {
@@ -182,54 +183,52 @@ class ActiveRecord extends BaseActiveRecord
             return false;
         }
         $values = $this->getDirtyAttributes($attributes);
-        if (empty($values)) {
-            $this->afterSave(false, $values);
-            return 0;
+
+        if (strtolower($this->getOldPrimaryKey()) != strtolower($this->getPrimaryKey())) {
+            static::getDb()->open();
+            static::getDb()->rename($this->getOldPrimaryKey(), LdapHelper::getRdnFromDn($this->getPrimaryKey()), NULL, true);
+            static::getDb()->close();
+            if (!$this->refresh()) {
+                Yii::info('Model not refresh.', __METHOD__);
+                return 0;
+            }
         }
 
-        if(($condition = $this->getOldPrimaryKey(true)) !== $this->getPrimaryKey(true)) {
-            // TODO Change DN
-//            static::getDb()->rename($condition, $newRdn, $newParent, true);
-//            if (!$this->refresh()){
-//                Yii::info('Model not refresh.', __METHOD__);
-//                return false;
-//            }
-        }
-        
+        $changeAttributes = [];
         foreach ($values as $key => $value) {
-            if($key == 'dn'){
+            if ($key == 'dn') {
                 continue;
             }
-            if(empty ($this->getOldAttribute($key)) && $value === ''){
+            if (empty($this->getOldAttribute($key)) && $value === '') {
                 unset($values[$key]);
-            } else if($value === ''){
-                $attributes[] = ['attrib'  => $key, 'modtype' => LDAP_MODIFY_BATCH_REMOVE];
-            } else if (empty ($this->getOldAttribute($key))) {
-                $attributes[] = ['attrib'  => $key, 'modtype' => LDAP_MODIFY_BATCH_ADD, 'values' => is_array($value) ? $value : [$value]];
+            } elseif ($value === '') {
+                $changeAttributes[] = ['attrib' => $key, 'modtype' => LDAP_MODIFY_BATCH_REMOVE];
+            } elseif (empty($this->getOldAttribute($key))) {
+                $changeAttributes[] = ['attrib' => $key, 'modtype' => LDAP_MODIFY_BATCH_ADD, 'values' => is_array($value) ? array_map('strval', $value) : [(string) $value]];
             } else {
-                $attributes[] = ['attrib'  => $key, 'modtype' => LDAP_MODIFY_BATCH_REPLACE, 'values' => is_array($value) ? $value : [$value]];
+                $changeAttributes[] = ['attrib' => $key, 'modtype' => LDAP_MODIFY_BATCH_REPLACE, 'values' => is_array($value) ? array_map('strval', $value) : [(string) $value]];
             }
         }
-        
-        if (empty($attributes)) {
-            $this->afterSave(false, $attributes);
+
+        if (empty($changeAttributes)) {
+            $this->afterSave(false, $changeAttributes);
             return 0;
         }
 
         // We do not check the return value of updateAll() because it's possible
         // that the UPDATE statement doesn't change anything and thus returns 0.
-        $rows = static::updateAll($attributes, $condition);
+        $rows = static::updateAll($changeAttributes, $this->getPrimaryKey());
 
-//        $changedAttributes = [];
-//        foreach ($values as $key => $value) {
-//            $changedAttributes[$key] = empty($this->getOldAttributes($key)) ? $this->getOldAttributes($key) : null;
-//            $this->setOldAttributes([$key=>$value]);
-//        }
-//        $this->afterSave(false, $changedAttributes);
+        $changedAttributes = [];
+        foreach ($values as $key => $value) {
+            $changedAttributes[$key] = empty($this->getOldAttributes($key)) ? $this->getOldAttributes($key) : null;
+            $this->setOldAttributes([$key=>$value]);
+        }
+        $this->afterSave(false, $changedAttributes);
 
         return $rows;
     }
-    
+
     /**
      * Updates the whole table using the provided attribute values and conditions.
      * For example, to change the status to be 1 for all customers whose status is 2:
@@ -238,24 +237,24 @@ class ActiveRecord extends BaseActiveRecord
      * Customer::updateAll(['status' => 1], 'status = 2');
      * ```
      *
-     * @param array $attributes attribute values (name-value pairs) to be saved into the table
+     * @param string[] $attributes attribute values (name-value pairs) to be saved into the table
      * @param string|array $condition the conditions that will be put in the WHERE part of the UPDATE SQL.
      * Please refer to [[Query::where()]] on how to specify this parameter.
      * @return integer the number of rows updated
      */
     public static function updateAll($attributes, $condition = '')
     {
-        if(is_array($condition)){
+        if (is_array($condition)) {
             $condition = $condition['dn'];
-        }        
-        
+        }
+
         static::getDb()->open();
         static::getDb()->modify($condition, $attributes);
         static::getDb()->close();
-        
+
         return count($attributes);
     }
-    
+
     /**
      * Deletes rows in the table using the provided conditions.
      * WARNING: If you do not specify any condition, this method will delete ALL rows in the ldap directory.
@@ -273,13 +272,17 @@ class ActiveRecord extends BaseActiveRecord
     public static function deleteAll($condition = '')
     {
         $entries = (new Query())->select(self::primaryKey())->where($condition)->execute()->toArray();
-        $count = 0;
-        
+        $count   = 0;
+
+        static::getDb()->open();
         foreach ($entries as $entry) {
             $dn = $entry[self::primaryKey()[0]];
             static::getDb()->delete($dn);
             $count++;
         }
+        static::getDb()->close();
+
         return $count;
     }
+
 }

@@ -1,9 +1,10 @@
 <?php
 /**
- * @link      https://github.com/chrmorandi/yii2-ldap for the canonical source repository
+ * @link      https://github.com/chrmorandi/yii2-ldap for the source repository
  * @package   yii2-ldap
  * @author    Christopher Mota <chrmorandi@gmail.com>
- * @license   Mit License - view the LICENSE file that was distributed with this source code.
+ * @license   MIT License - view the LICENSE file that was distributed with this source code.
+ * @since     1.0.0
  */
 
 namespace factorenergia\ldap;
@@ -12,7 +13,6 @@ use chrmorandi\ldap\Connection;
 use Yii;
 use yii\base\Component;
 use yii\base\InvalidValueException;
-use yii\db\Expression;
 use yii\db\QueryInterface;
 use yii\db\QueryTrait;
 
@@ -36,8 +36,6 @@ use yii\db\QueryTrait;
  *
  * Query internally uses the [[FilterBuilder]] class to generate the LDAP filters.
  *
- * @author Christopher Mota <chrmorandi@gmail.com>
- * @since 1.0.0
  */
 class Query extends Component implements QueryInterface
 {
@@ -46,7 +44,7 @@ class Query extends Component implements QueryInterface
     const SEARCH_SCOPE_SUB  = 'ldap_search';
     const SEARCH_SCOPE_ONE  = 'ldap_list';
     const SEARCH_SCOPE_BASE = 'ldap_read';
-    
+
     /**
      * @var string the scope of search
      * The search scope:
@@ -55,26 +53,25 @@ class Query extends Component implements QueryInterface
      * Query::SEARCH_SCOPE_BASE restricts search to the $baseDn itself; this can be used to efficiently retrieve a single entry by its DN.
      */
     public $scope = self::SEARCH_SCOPE_SUB;
-    
+
     /**
      * @var array the columns being selected. For example, `['id', 'name']`.
      * This is used to construct the SEARCH function in a LDAP statement. If not set, it means selecting all columns.
      * @see select()
      */
-    public $select;
-    
+    public $select = [];
+
     /**
      * @var string The search filter. Format is described in the LDAP documentation.
      * @see http://www.faqs.org/rfcs/rfc4515.html
      */
     public $filter;
-    
+
     /**
      * The distinguished name to perform searches upon.
      * @var string|null
      */
     protected $dn;
-    
     protected $dataReader;
 
     /**
@@ -89,22 +86,20 @@ class Query extends Component implements QueryInterface
             $db = Yii::$app->get('ldap');
         }
         $this->dn = isset($this->dn) ? $this->dn : $db->baseDn;
-        
-        $this->filter = (new FilterBuilder)->build($this->where);        
+
+        $this->filter = (new FilterBuilder)->build($this->where);
         if (empty($this->filter)) {
             throw new InvalidValueException('You must define a filter for the search.');
         }
-        
-        $select = (is_array($this->select)) ? $this->select : [];
-        
-        if(ctype_digit((string) $this->limit)){
-            $db->pageSize = $this->limit;            
-        }        
-        if(ctype_digit((string) $this->offset)){
+
+        if (ctype_digit((string) $this->limit)) {
+            $db->pageSize = $this->limit;
+        }
+        if (ctype_digit((string) $this->offset)) {
             $db->offset = $this->offset == 0 ? 1 : $this->offset;
         }
 
-        $params = [$this->dn, $this->filter, $select, 0, $this->limit, 0];
+        $params = [$this->dn, $this->filter, $this->select, 0, $this->limit, 0];
 
         return $db->executeQuery($this->scope, $params);
     }
@@ -116,25 +111,23 @@ class Query extends Component implements QueryInterface
      * @return array the query results. If the query results in nothing, an empty array will be returned.
      */
     public function all($db = null)
-    {    
-        if(!($this->dataReader instanceof DataReader)) {            
+    {
+        if ($db === null) {
+            $db = Yii::$app->get('ldap');
+        }
+
+        if (!($this->dataReader instanceof DataReader)) {
             /** @var $result DataReader */
             $this->dataReader = $this->execute($db);
         } else {
-            if ($db === null) {
-                $db = Yii::$app->get('ldap');
+            if (ctype_digit((string) $this->limit)) {
+                $db->pageSize = $this->limit;
             }
-            
-            if(ctype_digit((string) $this->limit)){
-                $db->pageSize = $this->limit;            
-            }        
-            if(ctype_digit((string) $this->offset)){
+            if (ctype_digit((string) $this->offset)) {
                 $db->offset = $this->offset == 0 ? 1 : $this->offset;
             }
         }
-        
-        
-                
+
         return $this->populate($this->dataReader->toArray());
     }
 
@@ -166,13 +159,16 @@ class Query extends Component implements QueryInterface
      * Executes the query and returns a single row of result.
      * @param Connection $db the database connection.
      * If this parameter is not given, the `db` application component will be used.
-     * @return array|boolean the first row (in terms of an array) of the query result. False is returned if the query
+     * @return array|bool the first row (in terms of an array) of the query result. False is returned if the query
      * results in nothing.
      */
     public function one($db = null)
     {
+        if ($db === null) {
+            $db = Yii::$app->get('ldap');
+        }
         $this->limit = 1;
-        $result = $this->execute($db);
+        $result      = $this->execute($db);
         return $result->toArray();
     }
 
@@ -185,22 +181,21 @@ class Query extends Component implements QueryInterface
      */
     public function count($q = null, $db = NULL)
     {
-        $this->limit = 20;
+        $this->limit      = 20;
         $this->dataReader = $this->execute($db);
         return $this->dataReader->count();
     }
-    
 
     /**
      * Returns a value indicating whether the query result contains any row of data.
      * @param Connection $db the database connection.
      * If this parameter is not given, the `db` application component will be used.
-     * @return boolean whether the query result contains any row of entries.
+     * @return bool whether the query result contains any row of entries.
      */
     public function exists($db = null)
-    {        
+    {
         $result = $this->execute($db);
-        return (boolean) $result->count();
+        return (bool) $result->count();
     }
 
     /**
@@ -230,7 +225,7 @@ class Query extends Component implements QueryInterface
      * $query->addSelect(['cn, mail'])->one();
      * ```
      *
-     * @param string|array|Expression $columns the columns to add to the select. See [[select()]] for more
+     * @param string|array $columns the columns to add to the select. See [[select()]] for more
      * details about the format of this parameter.
      * @return $this the query object itself
      * @see select()
@@ -277,7 +272,7 @@ class Query extends Component implements QueryInterface
     {
         if (preg_match("/^(~=|>=|>|<=|<|=)/", $value, $matches)) {
             $operator = $matches[1];
-            $value = substr($value, strlen($operator));
+            $value    = substr($value, strlen($operator));
         } else {
             $operator = $defaultOperator;
         }
@@ -293,12 +288,12 @@ class Query extends Component implements QueryInterface
     public static function create(Query $from)
     {
         return new self([
-            'where' => $from->where,
-            'limit' => $from->limit,
-            'offset' => $from->offset,
+            'where'   => $from->where,
+            'limit'   => $from->limit,
+            'offset'  => $from->offset,
             'orderBy' => $from->orderBy,
             'indexBy' => $from->indexBy,
-            'select' => $from->select,
+            'select'  => $from->select,
         ]);
     }
 
