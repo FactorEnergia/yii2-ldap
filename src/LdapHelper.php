@@ -1,24 +1,21 @@
 <?php
 /**
- * This file is part of the LdapTools package.
- *
- * (c) Chad Sikorra <Chad.Sikorra@gmail.com>
- *
- * For the full copyright and license information, please view the LICENSE
- * file that was distributed with this source code.
+ * @link      https://github.com/chrmorandi/yii2-ldap for the source repository
+ * @package   yii2-ldap
+ * @author    Christopher Mota <chrmorandi@gmail.com>
+ * @license   MIT License - view the LICENSE file that was distributed with this source code.
+ * @since     1.0.0
  */
 
 namespace factorenergia\ldap;
 
+use yii\base\InvalidArgumentException;
 
 /**
  * Some common helper LDAP functions.
- *
- * @author Chad Sikorra <Chad.Sikorra@gmail.com>
  */
-class LdapUtils
+class LdapHelper
 {
-    
     /**
      * Converts a string distinguished name into its separate pieces.
      *
@@ -31,7 +28,7 @@ class LdapUtils
         $pieces = ldap_explode_dn($dn, $withAttributes);
 
         if ($pieces === false || !isset($pieces['count']) || $pieces['count'] == 0) {
-            throw new \yii\base\InvalidParamException(sprintf('Unable to parse DN "%s".', $dn));
+            throw new InvalidArgumentException(sprintf('Unable to parse DN "%s".', $dn));
         }
         unset($pieces['count']);
         return $pieces;
@@ -51,7 +48,7 @@ class LdapUtils
             if (count($values) === 1) {
                 throw new InvalidArgumentException(sprintf('Unable to parse DN piece "%s".', $values[0]));
             }
-            $dn[$index] = $values[0].'='.$values[1];
+            $dn[$index] = $values[0] . '=' . $values[1];
         }
 
         return implode(',', $dn);
@@ -61,46 +58,45 @@ class LdapUtils
      * Given a full escaped DN return the RDN in escaped form.
      *
      * @param string $dn
-     * @return string
+     * @return string Return string like "attribute = value"
      */
     public static function getRdnFromDn($dn)
     {
         $rdn = self::explodeDn($dn, 0)[0];
         $rdn = explode('=', $rdn, 2);
 
-        return $rdn[0].'='.$rdn[1];
+        return $rdn[0] . '=' . $rdn[1];
     }
-    
+
     /**
      * Recursively implodes an array with optional key inclusion
-     * 
+     *
      * Example of $include_keys output: key, value, key, value, key, value
-     * 
+     *
      * @access  public
      * @param   array   $array         multi-dimensional array to recursively implode
-     * @param   string  $glue          value that glues elements together	
+     * @param   string  $glue          value that glues elements together
      * @param   bool    $include_keys  include keys before their values
      * @param   bool    $trim_all      trim ALL whitespace from string
      * @return  string  imploded array
-     */ 
-    public static function recursive_implode(array $array, $glue = ',', $include_keys = false, $trim_all = true)
+     */
+    public static function recursiveImplode(array $array, $glue = ',', $include_keys = false, $trim_all = true)
     {
-            $glued_string = '';
+        $glued_string = '';
 
-            // Recursively iterates array and adds key/value to glued string
-            array_walk_recursive($array, function($value, $key) use ($glue, $include_keys, &$glued_string)
-            {
-                    $include_keys and $glued_string .= $key.$glue;
-                    $glued_string .= $value.$glue;
-            });
+        // Recursively iterates array and adds key/value to glued string
+        array_walk_recursive($array, function($value, $key) use ($glue, $include_keys, &$glued_string) {
+            $include_keys and $glued_string .= $key . $glue;
+            $glued_string .= $value . $glue;
+        });
 
-            // Removes last $glue from string
-            strlen($glue) > 0 and $glued_string = substr($glued_string, 0, -strlen($glue));
+        // Removes last $glue from string
+        strlen($glue) > 0 and $glued_string = substr($glued_string, 0, -strlen($glue));
 
-            // Trim ALL whitespace
-            $trim_all and $glued_string = preg_replace("/(\s)/ixsm", '', $glued_string);
+        // Trim ALL whitespace
+        $trim_all and $glued_string = preg_replace("/(\s)/ixsm", '', $glued_string);
 
-            return (string) $glued_string;
+        return (string) $glued_string;
     }
 
 }

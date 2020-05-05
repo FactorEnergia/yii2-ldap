@@ -1,9 +1,10 @@
 <?php
 /**
- * @link      https://github.com/chrmorandi/yii2-ldap for the canonical source repository
+ * @link      https://github.com/chrmorandi/yii2-ldap for the source repository
  * @package   yii2-ldap
  * @author    Christopher Mota <chrmorandi@gmail.com>
  * @license   MIT License - view the LICENSE file that was distributed with this source code.
+ * @since     1.0.0
  */
 
 namespace factorenergia\ldap;
@@ -11,15 +12,18 @@ namespace factorenergia\ldap;
 use Yii;
 use yii\base\Component;
 use yii\caching\Cache;
+use yii\caching\CacheInterface;
+use yii\caching\Dependency;
+use yii\caching\TagDependency;
 
 /**
  * @property resource $resource
- * @property boolean  $bount
+ * @property bool     $bount
  * @property int      $errNo Error number of the last command
  * @property string   $lastError Error message of the last command
  *
  * @author Christopher Mota <chrmorandi@gmail.com>
- * @since 1.0
+ * @since  1.0
  */
 class Connection extends Component
 {
@@ -31,9 +35,9 @@ class Connection extends Component
 
     /**
      * LDAP port number.
-     * @var string
+     * @var int
      */
-    const PORT = '389';
+    const PORT = 389;
 
     /**
      * @event Event an event that is triggered after a DB connection is established
@@ -52,7 +56,7 @@ class Connection extends Component
     public $followReferrals = false;
 
     /**
-     * @var string The LDAP port to use when connecting to the domain controllers.
+     * @var int The LDAP port to use when connecting to the domain controllers.
      */
     public $port = self::PORT;
 
@@ -65,7 +69,7 @@ class Connection extends Component
      * @var array the domain controllers to connect to.
      */
     public $dc = [];
-    
+
     /**
      * @var string the username for establishing LDAP connection. Defaults to `null` meaning no username to use.
      */
@@ -75,20 +79,20 @@ class Connection extends Component
      * @var string the password for establishing DB connection. Defaults to `null` meaning no password to use.
      */
     public $password;
-    
+
     /**
      * @var int The page size for the paging operation.
      */
     public $pageSize = -1;
-    
+
     /**
      * @var integer zero-based offset from where the records are to be returned. If not set or
      * less than 1, it means not filter values.
      */
     public $offset = -1;
-    
+
     /**
-     * @var boolean whether to enable caching.
+     * @var bool whether to enable caching.
      * Note that in order to enable query caching, a valid cache component as specified
      * by [[cache]] must be enabled and [[enableCache]] must be set true.
      * Also, only the results of the queries enclosed within [[cache()]] will be cached.
@@ -96,7 +100,7 @@ class Connection extends Component
      * @see cache
      */
     public $enableCache = true;
-    
+
     /**
      * @var integer number of seconds that table metadata can remain valid in cache.
      * Use 0 to indicate that the cached data will never expire.
@@ -105,17 +109,17 @@ class Connection extends Component
     public $cacheDuration = 3600;
 
     /**
-     * @var Cache|string the cache object or the ID of the cache application component that
+     * @var string the cache the ID of the cache application component that
      * is used to cache result query.
      * @see enableCache
      */
     public $cache = 'cache';
-    
+
     /**
      * @var string the attribute for authentication
-     */    
+     */
     public $loginAttribute = "sAMAccountName";
-    
+
     /**
      * @var bool stores the bool whether or not the current connection is bound.
      */
@@ -125,16 +129,21 @@ class Connection extends Component
      * @var resource|false
      */
     protected $resource;
-    
+
     /**
      *
-     * @var string 
+     * @var string
      */
     protected $userDN;
-    
-    # Create AD password (Microsoft Active Directory password format)
-    protected static function encodePassword($password) {
-        $password = "\"" . $password . "\"";
+
+    /**
+     * Create AD password (Microsoft Active Directory password format)
+     * @param string $password
+     * @return string
+     */
+    protected static function encodePassword($password)
+    {
+        $password   = "\"" . $password . "\"";
         $adpassword = mb_convert_encoding($password, "UTF-16LE", "UTF-8");
         return $adpassword;
     }
@@ -143,8 +152,8 @@ class Connection extends Component
      * Returns the current query cache information.
      * This method is used internally by [[Command]].
      * @param integer $duration the preferred caching duration. If null, it will be ignored.
-     * @param \yii\caching\Dependency $dependency the preferred caching dependency. If null, it will be ignored.
-     * @return array the current query cache information, or null if query cache is not enabled.
+     * @param Dependency $dependency the preferred caching dependency. If null, it will be ignored.
+     * @return array|null the current query cache information, or null if query cache is not enabled.
      * @internal
      */
     public function getCacheInfo($duration = 3600, $dependency = null)
@@ -153,12 +162,8 @@ class Connection extends Component
             return null;
         }
 
-        if ($duration === 0 || $duration > 0) {
-            if (is_string($this->cache) && Yii::$app) {
-                $cache = Yii::$app->get($this->cache, false);
-            } else {
-                $cache = $this->cache;
-            }
+        if (($duration === 0 || $duration > 0) && Yii::$app) {
+            $cache = Yii::$app->get($this->cache, false);
             if ($cache instanceof Cache) {
                 return [$cache, $duration, $dependency];
             }
@@ -166,7 +171,7 @@ class Connection extends Component
 
         return null;
     }
-    
+
     /**
      * Invalidates the cached data that are associated with any of the specified [[tags]] in this connection.
      * @param string|array $tags
@@ -174,7 +179,9 @@ class Connection extends Component
     public function clearCache($tags)
     {
         $cache = Yii::$app->get($this->cache, false);
-        \yii\caching\TagDependency::invalidate($cache, $tags);
+        if ($cache instanceof CacheInterface) {
+            TagDependency::invalidate($cache, $tags);
+        }
     }
 
     /**
@@ -183,7 +190,7 @@ class Connection extends Component
      */
     public function open($anonymous = false)
     {
-        $token = 'Opening LDAP connection: ' . LdapUtils::recursive_implode($this->dc, ' or ');
+        $token = 'Opening LDAP connection: ' . LdapHelper::recursiveImplode($this->dc, ' or ');
         Yii::info($token, __METHOD__);
         Yii::beginProfile($token, __METHOD__);
         // Connect to the LDAP server.
@@ -204,19 +211,19 @@ class Connection extends Component
     /**
      * Connection.
      * @param string|array $hostname
-     * @param type $port
+     * @param int $port
      * @return void
      */
-    protected function connect($hostname = [], $port = '389')
+    protected function connect($hostname = [], $port = 389)
     {
         if (is_array($hostname)) {
-            $hostname = self::PROTOCOL.implode(' '.self::PROTOCOL, $hostname);
+            $hostname = self::PROTOCOL . implode(' ' . self::PROTOCOL, $hostname);
         }
-        
+
         $this->close();
         $this->resource = ldap_connect($hostname, $port);
 
-        // Set the LDAP options.     
+        // Set the LDAP options.
         $this->setOption(LDAP_OPT_PROTOCOL_VERSION, 3);
         $this->setOption(LDAP_OPT_REFERRALS, $this->followReferrals);
         $this->setOption(LDAP_OPT_NETWORK_TIMEOUT, 2);
@@ -227,34 +234,35 @@ class Connection extends Component
 
         $this->trigger(self::EVENT_AFTER_OPEN);
     }
-    
+
     /**
      * Authenticate user
      * @param string $username
      * @param string $password
-     * @return int indicate occurrence of error. 
+     * @return bool indicate occurrence of error.
      */
     public function auth($username, $password)
     {
         // Open connection with manager
         $this->open();
-        
+
         # Search for user and get user DN
         $searchResult = ldap_search($this->resource, $this->baseDn, "(&(objectClass=person)($this->loginAttribute=$username))", [$this->loginAttribute]);
-        $entry = $this->getFirstEntry($searchResult);
-        if($entry) {
-            $this->userDN = $this->getDn($entry);        
+        $entry        = $this->getFirstEntry($searchResult);
+        if ($entry) {
+            $this->userDN = $this->getDn($entry);
         } else {
-            $this->userDN = null;
+            // User not found.
+            return false;
         }
 
         // Connect to the LDAP server.
         $this->connect($this->dc, $this->port);
 
-        // Authenticate user
+        // Try to authenticate user, but ignore any PHP warnings.
         return @ldap_bind($this->resource, $this->userDN, $password);
     }
-    
+
     /**
      * Change the password of the current user. This must be performed over TLS.
      * @param string $username User for change password
@@ -264,20 +272,20 @@ class Connection extends Component
      * @throws \Exception
      */
     public function changePasswordAsUser($username, $oldPassword, $newPassword)
-    {        
+    {
         if (!$this->useTLS) {
             $message = 'TLS must be configured on your web server and enabled to change passwords.';
             throw new \Exception($message);
         }
 
         // Open connection with user
-        if(!$this->auth($username, $oldPassword)){
+        if (!$this->auth($username, $oldPassword)) {
             return false;
         }
-        
+
         return $this->changePasswordAsManager($this->userDN, $newPassword);
     }
-    
+
     /**
      * Change the password of the user as manager. This must be performed over TLS.
      * @param string $userDN User Distinguished Names (DN) for change password. Ex.: cn=admin,dc=example,dc=com
@@ -286,25 +294,25 @@ class Connection extends Component
      * @throws \Exception
      */
     public function changePasswordAsManager($userDN, $newPassword)
-    {        
+    {
         if (!$this->useTLS) {
             $message = 'TLS must be configured on your web server and enabled to change passwords.';
             throw new \Exception($message);
         }
-        
+
         // Open connection with manager
         $this->open();
-        
+
         // Replace passowrd attribute for AD
         // The AD password change procedure is modifying the attribute unicodePwd
         $modifications['unicodePwd'] = self::encodePassword($newPassword);
         return ldap_mod_replace($this->resource, $userDN, $modifications);
     }
-    
+
     /**
      * Closes the current connection.
      *
-     * @return boolean
+     * @return bool
      */
     public function close()
     {
@@ -317,7 +325,7 @@ class Connection extends Component
     /**
      * Execute ldap search like.
      *
-     * http://php.net/manual/en/ref.ldap.php
+     * @link http://php.net/manual/en/ref.ldap.php
      *
      * @param  string $function php LDAP function
      * @param  array $params params for execute ldap function
@@ -327,32 +335,32 @@ class Connection extends Component
     {
         $this->open();
         $results = [];
-        $cookie = '';        
-        $token = $function . ' - params: ' . LdapUtils::recursive_implode($params, ';');
+        $cookie  = '';
+        $token   = $function . ' - params: ' . LdapHelper::recursiveImplode($params, ';');
 
-        Yii::info($token , 'chrmorandi\ldap\Connection::query');
-       
+        Yii::info($token, 'chrmorandi\ldap\Connection::query');
+
         Yii::beginProfile($token, 'chrmorandi\ldap\Connection::query');
         do {
-            if($this->pageSize > 0) {
+            if ($this->pageSize > 0) {
                 $this->setControlPagedResult($cookie);
             }
-            
+
             // Run the search.
             $result = call_user_func($function, $this->resource, ...$params);
-            
-            if($this->pageSize > 0) {
+
+            if ($this->pageSize > 0) {
                 $this->setControlPagedResultResponse($result, $cookie);
             }
-            
+
             //Collect each resource result
-            $results[] = $result;            
+            $results[] = $result;
         } while (!is_null($cookie) && !empty($cookie));
         Yii::endProfile($token, 'chrmorandi\ldap\Connection::query');
 
         return new DataReader($this, $results);
     }
-    
+
     /**
      * Returns true/false if the current connection is bound.
      * @return bool
@@ -361,7 +369,7 @@ class Connection extends Component
     {
         return $this->_bound;
     }
-    
+
     /**
      * Get the current resource of connection.
      * @return resource
@@ -369,17 +377,6 @@ class Connection extends Component
     public function getResource()
     {
         return $this->resource;
-    }
-    
-    /**
-     * Sorts an AD search result by the specified attribute.
-     * @param resource $result
-     * @param string   $attribute
-     * @return bool
-     */
-    public function sort($result, $attribute)
-    {
-        return ldap_sort($this->resource, $result, $attribute);
     }
 
     /**
@@ -421,7 +418,7 @@ class Connection extends Component
      * Batch modifies an existing entry on the current connection.
      * The types of modifications:
      *      LDAP_MODIFY_BATCH_ADD - Each value specified through values is added.
-     *      LDAP_MODIFY_BATCH_REMOVE - Each value specified through values is removed. 
+     *      LDAP_MODIFY_BATCH_REMOVE - Each value specified through values is removed.
      *          Any value of the attribute not contained in the values array will remain untouched.
      *      LDAP_MODIFY_BATCH_REMOVE_ALL - All values are removed from the attribute named by attrib.
      *      LDAP_MODIFY_BATCH_REPLACE - All current values are replaced by new one.
@@ -438,20 +435,19 @@ class Connection extends Component
      */
     public function modify($dn, array $values)
     {
-        $this->clearCache(DataReader::CACHE_TAG);
         return ldap_modify_batch($this->resource, $dn, $values);
-    }    
-    
+    }
+
     /**
      * Retrieve the entries from a search result.
      * @param resource $searchResult
-     * @return array|boolean
+     * @return array|bool
      */
     public function getEntries($searchResult)
     {
         return ldap_get_entries($this->resource, $searchResult);
     }
-    
+
     /**
      * Retrieves the number of entries from a search result.
      * @param resource $searchResult
@@ -465,7 +461,7 @@ class Connection extends Component
     /**
      * Retrieves the first entry from a search result.
      * @param resource $searchResult
-     * @return resource link identifier
+     * @return resource|false the result entry identifier for the first entry on success and FALSE on error.
      */
     public function getFirstEntry($searchResult)
     {
@@ -481,7 +477,7 @@ class Connection extends Component
     {
         return ldap_next_entry($this->resource, $entry);
     }
-    
+
     /**
      * Retrieves the ldap first entry attribute.
      * @param resource $entry
@@ -491,7 +487,7 @@ class Connection extends Component
     {
         return ldap_first_attribute($this->resource, $entry);
     }
-    
+
     /**
      * Retrieves the ldap next entry attribute.
      * @param resource $entry
@@ -511,20 +507,28 @@ class Connection extends Component
     {
         return ldap_get_attributes($this->resource, $entry);
     }
-    
+
     /**
-     * Retrieves all binary values from a result entry.
-     * @param resource $entry link identifier
-     * @param string $attribute name of attribute
-     * @return array
+     * Retrieves all binary values from a result entry. Individual values are accessed by integer index in the array.
+     * The first index is 0. The number of values can be found by indexing "count" in the resultant array.
+     *
+     * @link https://www.php.net/manual/en/function.ldap-get-values-len.php
+     *
+     * @param resource $entry Link identifier
+     * @param string $attribute Name of attribute
+     * @return array Returns an array of values for the attribute on success and empty array on error.
      */
     public function getValuesLen($entry, $attribute)
     {
-        return ldap_get_values_len($this->resource, $entry, $attribute);
+        $result = ldap_get_values_len($this->resource, $entry, $attribute);
+        return ($result == false) ? [] : $result;
     }
-    
+
     /**
      * Retrieves the DN of a result entry.
+     *
+     * @link https://www.php.net/manual/en/function.ldap-get-dn.php
+     *
      * @param resource $entry
      * @return string
      */
@@ -535,8 +539,11 @@ class Connection extends Component
 
     /**
      * Free result memory.
+     *
+     * @link https://www.php.net/manual/en/function.ldap-free-result.php
+     *
      * @param resource $searchResult
-     * @return bool
+     * @return bool Returns TRUE on success or FALSE on failure.
      */
     public function freeResult($searchResult)
     {
@@ -545,9 +552,12 @@ class Connection extends Component
 
     /**
      * Sets an option on the current connection.
-     * @param int   $option
-     * @param mixed $value
-     * @return boolean
+     *
+     * @link https://www.php.net/manual/en/function.ldap-set-option.php
+     *
+     * @param int   $option The parameter.
+     * @param mixed $value The new value for the specified option.
+     * @return bool Returns TRUE on success or FALSE on failure.
      */
     public function setOption($option, $value)
     {
@@ -556,48 +566,62 @@ class Connection extends Component
 
     /**
      * Starts a connection using TLS.
+     *
+     * @link https://www.php.net/manual/en/function.ldap-start-tls.php
+     *
      * @return bool
      */
     public function startTLS()
     {
         return ldap_start_tls($this->resource);
     }
-    
+
     /**
      * Send LDAP pagination control.
-     * @param int    $pageSize
-     * @param bool   $isCritical
-     * @param string $cookie
-     * @return bool
+     *
+     * @link http://php.net/manual/en/function.ldap-control-paged-result.php
+     *
+     * @param string $cookie An opaque structure sent by the server
+     * @param bool   $isCritical Indicates whether the pagination is critical or not. If true and if the server doesn't support pagination, the search will return no result.
+     * @return bool Returns TRUE on success or FALSE on failure.
      */
-    public function setControlPagedResult($cookie)
+    public function setControlPagedResult($cookie = '', $isCritical = false)
     {
-        return ldap_control_paged_result($this->resource, $this->pageSize, false, $cookie);
+        return ldap_control_paged_result($this->resource, $this->pageSize, $isCritical, $cookie);
     }
 
     /**
      * Retrieve a paginated result response.
+     *
+     * @link https://www.php.net/manual/en/function.ldap-control-paged-result-response.php
+     *
      * @param resource $result
-     * @param string $cookie
-     * @return bool
+     * @param string $cookie An opaque structure sent by the server
+     * @return bool Returns TRUE on success or FALSE on failure.
      */
     public function setControlPagedResultResponse($result, &$cookie)
     {
         return ldap_control_paged_result_response($this->resource, $result, $cookie);
     }
-       
+
     /**
-     * Retrieve the last error on the current connection.
-     * @return string
+     * Return the LDAP error message of the last LDAP command.
+     *
+     * @link https://www.php.net/manual/en/function.ldap-error.php
+     *
+     * @return string Error message.
      */
     public function getLastError()
     {
         return ldap_error($this->resource);
     }
-    
+
     /**
      * Returns the number of the last error on the current connection.
-     * @return int
+     *
+     * @link https://www.php.net/manual/en/function.ldap-errno.php
+     *
+     * @return int Error number
      */
     public function getErrNo()
     {
@@ -606,11 +630,15 @@ class Connection extends Component
 
     /**
      * Returns the error string of the specified error number.
-     * @param int $number
-     * @return string
+     *
+     * @link https://www.php.net/manual/en/function.ldap-err2str.php
+     *
+     * @param int $number The error number.
+     * @return string  Error message.
      */
     public function err2Str($number)
     {
         return ldap_err2str($number);
     }
+
 }

@@ -1,16 +1,16 @@
 <?php
 /**
- * @link      https://github.com/chrmorandi/yii2-ldap for the canonical source repository
+ * @link      https://github.com/chrmorandi/yii2-ldap for the source repository
  * @package   yii2-ldap
  * @author    Christopher Mota <chrmorandi@gmail.com>
  * @license   MIT License - view the LICENSE file that was distributed with this source code.
+ * @since     1.0.0
  */
 
 namespace factorenergia\ldap;
 
 use chrmorandi\ldap\ActiveRecord;
 use chrmorandi\ldap\Connection;
-use chrmorandi\ldap\query\QueryBuilder;
 use yii\db\ActiveQueryInterface;
 use yii\db\ActiveQueryTrait;
 use yii\db\ActiveRelationTrait;
@@ -76,19 +76,11 @@ class ActiveQuery extends Query implements ActiveQueryInterface
 
     use ActiveQueryTrait;
     use ActiveRelationTrait;
-    
     /**
      * @event Event an event that is triggered when the query is initialized via [[init()]].
      */
     const EVENT_INIT = 'init';
-    
-    /**
-     * Stores the current query builder instance.
-     *
-     * @var QueryBuilder
-     */
-    protected $queryBuilder;
-    
+
     /**
      * Constructor.
      * @param string $modelClass the model class associated with this query
@@ -122,7 +114,7 @@ class ActiveQuery extends Query implements ActiveQueryInterface
     {
         return parent::all($db);
     }
-    
+
     /**
      * @inheritdoc
      */
@@ -150,7 +142,7 @@ class ActiveQuery extends Query implements ActiveQueryInterface
      * Executes the query and returns a single row of result.
      * @param Connection $db the database connection used to generate the SQL statement.
      * If this parameter is not given, the `db` application component will be used.
-     * @return array|boolean the first row (in terms of an array) of the query result. False is returned if the query
+     * @return array|bool the first row (in terms of an array) of the query result. False is returned if the query
      * results in nothing.
      */
     public function one($db = null)
@@ -163,4 +155,5 @@ class ActiveQuery extends Query implements ActiveQueryInterface
             return null;
         }
     }
+
 }

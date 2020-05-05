@@ -1,33 +1,28 @@
 {
     "name": "factorenergia/yii2-ldap",
     "description": "Ldap",
-    "type": "library",
     "keywords": ["yii2", "extension", "ldap", "Active Directory", "OpenLDAP"],
+    "type": "yii2-extension",
     "license": "MIT",
-    "authors": [
-        {
-            "name": "Factor Energia",
-            "email": "ahuertas@factorenergia.com"
-        }
-    ],
+    "homepage": "https://github.com/factorenergia/yii2-ldap",
+    "authors": [{"name": "Christopher Mota","email": "chrmorandi@gmail.com"}],
     "require": {
-        "php": ">=5.6",
-        "yiisoft/yii2": "*",
+        "php": ">=7.0",
+        "yiisoft/yii2": "~2.0.14",
         "ext-ldap": "*"
     },
     "require-dev": {
         "codeception/codeception": "*",
-        "yiisoft/yii2-coding-standards": "*"
+        "yiisoft/yii2-coding-standards": "*",
+        "yiisoft/yii2-apidoc": "*"
     },
-    "extra": {
-        "asset-vcs-driver-options": {
-            "github-no-api": true
-        },
-        "asset-pattern-skip-version": "(-build|-patch)"
-    },
+    "repositories": [{
+            "type": "composer",
+            "url": "https://asset-packagist.org"
+    }],
     "autoload": {
         "psr-4": {
-            "factorenergia\\ldap\\": ""
+            "factorenergia\\ldap\\": "src/"
         }
     }
 }
